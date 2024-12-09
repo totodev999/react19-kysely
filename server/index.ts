@@ -55,4 +55,34 @@ app.post('/api/to-do', async (req, res) => {
   return res.send(insResult.rows[0]);
 });
 
+app.get('/api/to-do', async (req, res) => {
+  const { search, type } = req.query;
+  if (!search) {
+    const todos = await db.selectFrom('todos').selectAll().execute();
+    return res.json(todos);
+  }
+
+  console.log('search', search);
+  const searchLike = `%${search}%`;
+
+  console.log(
+    'sql`',
+    sql<GetTodos>`SELECT * FROM todos WHERE title LIKE ${searchLike} OR content LIKE ${searchLike}`
+  );
+
+  const fullTextSearch = await db.transaction().execute(async (trx) => {
+    // forcing to use index. But, still there is possibility to use seq scan.
+    // enable_seqscan is just a way to add cost to seq scan.
+    // Reference: https://pgpedia.info/e/enable_seqscan.html
+    await sql<null>`SET LOCAL enable_seqscan = off;`.execute(trx);
+    const res =
+      await sql<GetTodos>`EXPLAIN ANALYZE SELECT * FROM todos WHERE title LIKE ${searchLike} OR content LIKE ${searchLike}`.execute(
+        trx
+      );
+    return res;
+  });
+
+  return res.json(fullTextSearch.rows);
+});
+
 app.listen(port, () => console.log(`Example app listening on port ${port}!`));
