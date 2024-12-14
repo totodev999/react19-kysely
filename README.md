@@ -53,6 +53,12 @@ CREATE TABLE todos (
 CREATE INDEX documents_title_content_bigm_idx
 ON todos
 USING gin (
-    (title || ' ' || content) gin_bigm_ops
+   title gin_bigm_ops, content gin_bigm_ops
 );
+
+CREATE INDEX documents_content_bigm_idx
+ON todos
+USING gin (content gin_bigm_ops
+);
+
 ```

@@ -19,5 +19,7 @@ const dialect = new PostgresDialect({
 // to communicate with your database.
 export const db = new Kysely<Database>({
   dialect,
-  log: ['error', 'query'],
+  log(event) {
+    console.log(event);
+  },
 });

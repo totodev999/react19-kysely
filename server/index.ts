@@ -31,58 +31,96 @@ app.get('/api/login', (req, res) => {
 // });
 
 app.post('/api/to-do', async (req, res) => {
-  const { title, content } = req.body;
-  console.log(title, content);
-  const vectorized = await axios.post('http://localhost:8000/vectorize', {
-    text: title + content,
-  });
+  const { content } = req.body;
+  console.log(content);
+  let vectorized: any;
+  try {
+    vectorized = await axios.post('http://localhost:8000/vectorize', {
+      text: content,
+    });
+  } catch (e) {
+    console.log(e);
+    return res.status(500).send('Failed to vectorize');
+  }
 
   const vector = vectorized.data.vector as number[];
-  console.log(
-    'vectorized.data.vector',
-    Array.isArray(vectorized.data.vector),
-    vectorized.data.vector
-  );
-
   const vectorForDB = '[' + vector + ']';
 
+  // better to delete new lines.
   const insResult =
-    await sql<GetTodos>`INSERT INTO todos (title, content, text_vector) VALUES (${title}, ${content}, ${vectorForDB}) RETURNING *`.execute(
+    await sql<GetTodos>`INSERT INTO todos (title, content, text_vector) VALUES ('test', ${content}, ${vectorForDB}) RETURNING *`.execute(
       db
     );
 
-  console.log(insResult.rows[0]);
   return res.send(insResult.rows[0]);
 });
 
-app.get('/api/to-do', async (req, res) => {
-  const { search, type } = req.query;
+app.post('/api/to-do/full-text-search', async (req, res) => {
+  const { search } = req.body;
   if (!search) {
-    const todos = await db.selectFrom('todos').selectAll().execute();
-    return res.json(todos);
+    return res.status(404).json({ message: 'search text is not set.' });
   }
 
   console.log('search', search);
   const searchLike = `%${search}%`;
 
-  console.log(
-    'sql`',
-    sql<GetTodos>`SELECT * FROM todos WHERE title LIKE ${searchLike} OR content LIKE ${searchLike}`
-  );
-
   const fullTextSearch = await db.transaction().execute(async (trx) => {
     // forcing to use index. But, still there is possibility to use seq scan.
     // enable_seqscan is just a way to add cost to seq scan.
     // Reference: https://pgpedia.info/e/enable_seqscan.html
-    await sql<null>`SET LOCAL enable_seqscan = off;`.execute(trx);
-    const res =
-      await sql<GetTodos>`EXPLAIN ANALYZE SELECT * FROM todos WHERE title LIKE ${searchLike} OR content LIKE ${searchLike}`.execute(
+    await sql<null>`SET LOCAL enable_seqscan = OFF;`.execute(trx);
+
+    // check if index is used
+    console.log(
+      await sql<null>`EXPLAIN SELECT * FROM todos WHERE title =% ${searchLike} OR content like ${searchLike};`.execute(
         trx
-      );
+      )
+    );
+
+    const res = await trx
+      .selectFrom('todos')
+      .select(['id', 'title', 'content'])
+      .where((eb) =>
+        eb.or([
+          (eb('title', 'like', searchLike), eb('content', 'like', searchLike)),
+        ])
+      )
+      .execute();
     return res;
   });
 
-  return res.json(fullTextSearch.rows);
+  return res.json(fullTextSearch);
+});
+
+app.post('/api/to-do/vector-search', async (req, res) => {
+  const { search } = req.body;
+  if (!search) {
+    return res.status(404).json({ message: 'search text is not set.' });
+  }
+
+  let vectorized: any;
+  try {
+    vectorized = await axios.post('http://localhost:8000/vectorize', {
+      text: search,
+    });
+  } catch (e) {
+    console.log(e);
+    return res.status(500).send('Failed to vectorize');
+  }
+
+  const vector = '[' + vectorized.data.vector + ']';
+
+  // pg_vector provides 3 ways to evaluate similarity. 1.cosine distance 2.Dot Product 3.Euclidean Distance .
+  // For text similarity, cosine distance is most suitable, maybe.
+  const result = await sql<
+    GetTodos[]
+  >`SELECT content, COSINE_DISTANCE(text_vector, ${vector}) AS similarity FROM todos ORDER BY COSINE_DISTANCE(text_vector, ${vector}) LIMIT 10;`.execute(
+    db
+  );
+
+  console.log(result);
+
+  return res.json(result);
 });
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`));

@@ -3,13 +3,30 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 import uvicorn
 import numpy as np
+import os
+import gc
+from contextlib import asynccontextmanager
 
-# モデルのロード
-# model_name = 'sentence-transformers/stsb-xlm-r-multilingual'
-model_name = 'Snowflake/snowflake-arctic-embed-l-v2.0'
-model = SentenceTransformer(model_name)
+modelBase = {}
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Load the ML model
+    # モデルのロード
+    # model_name = 'sentence-transformers/stsb-xlm-r-multilingual'
+    print("Loading the model...")
+
+    model_name = 'Snowflake/snowflake-arctic-embed-l-v2.0'
+    # If you do not set device to cpu, memory leak will happen.
+    # Maybe, FastAPI creates multiple thread and model will be copied on each threads.
+    modelBase["text"] = SentenceTransformer(model_name, device="cpu")
+    yield
+    # Clean up the ML models and release the resources
+    print("Clearing the model...")
+    modelBase.clear()
+
+app = FastAPI(lifespan=lifespan)
+
 
 class TextInput(BaseModel):
     text: str
@@ -22,10 +39,10 @@ class CosineInput(BaseModel):
 async def vectorize_text(input_data: TextInput):
     # 入力テキストを取得
     text = input_data.text
-    tokenizer = model.tokenizer
+    tokenizer = modelBase["text"].tokenizer
 
     # 最大トークン数
-    max_length = model.max_seq_length
+    max_length = modelBase["text"].max_seq_length
 
     # テキストをトークン化してトークン数を確認
     tokenized = tokenizer(text, truncation=False, return_tensors="pt")
@@ -38,19 +55,19 @@ async def vectorize_text(input_data: TextInput):
         raise HTTPException(status_code=404, detail="The number of tokens exceeds the maximum length.")
 
     # ベクトル化
-    embeddings = model.encode([text])
+    embeddings = modelBase["text"].encode([text])
 
     print(f"Embeddings shape: {embeddings.shape}")
     
     # embeddingsはサイズ (1, embedding_dim) の2次元配列
     vector = embeddings[0].tolist()  # Pythonのリスト形式に変換
-
+    gc.collect()
     return {"vector": vector}
 
 @app.post("/cosine_similarity")
 async def cosine_similarity(input_data: CosineInput):
     # 2つのテキストそれぞれをエンコード
-    embeddings = model.encode([input_data.text1, input_data.text2])
+    embeddings = modelBase["text"].encode([input_data.text1, input_data.text2])
     vec1, vec2 = embeddings[0], embeddings[1]
 
     # コサイン類似度計算
