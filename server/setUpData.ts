@@ -17,6 +17,16 @@ const deleteAllData = async () => {
   await db.deleteFrom('todos').execute();
 };
 
+const deleteUnnecessaryPropaty = async () => {
+  const data = JSON.parse(await readFile('./data.json', 'utf-8')) as GetTodos[];
+
+  const newData = data.map((todo) => {
+    const { id, created_at, updated_at, ...rest } = todo;
+    return rest;
+  });
+  await writeFile('./data-new.json', JSON.stringify(newData), 'utf-8');
+};
+
 const insertData = async () => {
   const data = JSON.parse(await readFile('./data.json', 'utf-8')) as GetTodos[];
   const insertData = data.map((todo) => ({
