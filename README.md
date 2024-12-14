@@ -61,4 +61,7 @@ ON todos
 USING gin (content gin_bigm_ops
 );
 
+-- Adjust the "lists" value based on the size of the data:
+-- Increase the number for larger datasets, decrease it for smaller datasets
+CREATE INDEX ON todos USING ivfflat (text_vector) WITH (lists = 100);
 ```
