@@ -6,6 +6,9 @@ import {
   useNavigation,
 } from 'react-router';
 import { Home } from './pages/Home';
+import { Login } from './pages/Login';
+import { Main } from './pages/Main';
+import { Search } from './pages/Search';
 
 function ComponentsWrapper() {
   const navigation = useNavigation();
@@ -26,6 +29,18 @@ const router = createBrowserRouter([
       {
         index: true,
         element: <Home />,
+      },
+      {
+        path: '/login',
+        element: <Login />,
+      },
+      {
+        path: '/main',
+        element: <Main />,
+      },
+      {
+        path: '/search',
+        element: <Search />,
       },
       {
         path: '/test',
